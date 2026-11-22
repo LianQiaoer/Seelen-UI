@@ -27,6 +27,9 @@ jobs:
         run: cargo build --release --target x86_64-pc-windows-msvc -p sluhk
 
       - name: Build (no bundle)
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: npx tauri build --ci --verbose --no-bundle --target x86_64-pc-windows-msvc
 
       - name: Bundle NSIS installer (unsigned)
