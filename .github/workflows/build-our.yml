@@ -1,0 +1,40 @@
+name: "Build Our Seelen"
+
+# Manual trigger only. Zero-change proof build first (patch 0):
+# upstream code as-is, x64 only, normal NSIS installer, no signing,
+# no SignPath, no MS Store, no updater manifest, no fixed-runtime variant.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/setup
+        with:
+          rust-targets: x86_64-pc-windows-msvc
+          cache-key-prefix: rust-build-x86_64-pc-windows-msvc
+
+      - name: Install frontend dependencies & Gen Core Lib
+        run: npm install
+
+      - name: Build Hook DLL
+        run: cargo build --release --target x86_64-pc-windows-msvc -p sluhk
+
+      - name: Build (no bundle)
+        run: npx tauri build --ci --verbose --no-bundle --target x86_64-pc-windows-msvc
+
+      - name: Bundle NSIS installer (unsigned)
+        run: npx tauri bundle --ci --verbose --target x86_64-pc-windows-msvc --no-sign --no-binary-patching
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: seelen-our-build-x64
+          path: target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+          if-no-files-found: error
