@@ -1,18 +1,20 @@
 <script lang="ts">
-  import { lpState, matches, nameFromPath } from "./state.svelte.ts";
+  import { lpState, matches, nameFromPath, type LaunchpadApp } from "./state.svelte.ts";
   import Tile from "./components/Tile.svelte";
 
   let gridEl: HTMLElement | null = $state(null);
   let searchEl: HTMLInputElement | null = $state(null);
-  let addPath = $state("");
   let cols = $state(5);
   let rows = $state(3);
 
   const visible = $derived(lpState.apps.filter((a) => matches(a, lpState.query.trim())));
+  const slots = $derived<(LaunchpadApp | null)[]>(
+    lpState.editing && !lpState.query.trim() ? [...visible, null] : visible,
+  );
   const perPage = $derived(Math.max(1, cols * rows));
-  const pageCount = $derived(Math.max(1, Math.ceil(visible.length / perPage)));
+  const pageCount = $derived(Math.max(1, Math.ceil(slots.length / perPage)));
   const pages = $derived(
-    Array.from({ length: pageCount }, (_, i) => visible.slice(i * perPage, (i + 1) * perPage)),
+    Array.from({ length: pageCount }, (_, i) => slots.slice(i * perPage, (i + 1) * perPage)),
   );
 
   $effect(() => {
@@ -87,7 +89,7 @@
   });
 
   function onBackdropClick(ev: MouseEvent) {
-    if (lpState.editor || lpState.addMode) return;
+    if (lpState.editor) return;
     const tg = ev.target as HTMLElement;
     if (
       tg.classList.contains("lp-backdrop") ||
@@ -101,7 +103,6 @@
 
   function onRootContextMenu(ev: MouseEvent) {
     ev.preventDefault();
-    if (lpState.addMode) return;
     const tileEl = (ev.target as HTMLElement).closest?.("[data-lp-item]") as HTMLElement | null;
     const item = tileEl ? lpState.apps.find((a) => a.id === tileEl.dataset.lpItem) : undefined;
     if (item) {
@@ -126,7 +127,6 @@
   function onKeyDown(ev: KeyboardEvent) {
     if (ev.key === "Escape") {
       if (lpState.menu) lpState.hideMenu();
-      else if (lpState.addMode) lpState.exitAddMode();
       else if (lpState.editor) lpState.closeEditor();
       else lpState.closeWithAnimation();
       return;
@@ -143,10 +143,6 @@
     }
   }
 
-  function submitPaste() {
-    lpState.addFromPaste(addPath);
-    addPath = "";
-  }
 </script>
 
 <svelte:window onkeydown={onKeyDown} onpointerdown={onDocPointerDown} />
@@ -156,7 +152,7 @@
   class:lp-opening={lpState.opening}
   class:lp-closing={lpState.closing}
   class:lp-editing={lpState.editing}
-  class:lp-dragging={lpState.dragHover && !lpState.addMode}
+  class:lp-dragging={lpState.dragHover}
   oncontextmenu={onRootContextMenu}
 >
   <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -177,7 +173,7 @@
         />
       </div>
       <div class="lp-actions">
-        <button class="lp-btn" type="button" onclick={() => lpState.enterAddMode()}>添加应用</button>
+        <button class="lp-btn" type="button" onclick={() => lpState.pickFiles()}>添加应用</button>
         <button
           class="lp-btn"
           class:lp-active={lpState.editing}
@@ -199,8 +195,20 @@
       <div class="lp-pages" style="transform: translateX(-{lpState.page * 100}%)">
         {#each pages as pageItems, pi (pi)}
           <div class="lp-page" style="grid-template-columns: repeat({cols}, 1fr)">
-            {#each pageItems as item (item.id)}
-              <Tile {item} />
+            {#each pageItems as item, ii (item ? item.id : "lp-add-" + ii)}
+              {#if item}
+                <Tile {item} />
+              {:else}
+                <button
+                  class="lp-tile lp-add-tile"
+                  type="button"
+                  title="手动添加应用"
+                  onclick={() => lpState.openEditor(null)}
+                >
+                  <span class="lp-tile-icon">+</span>
+                  <span class="lp-tile-name">添加</span>
+                </button>
+              {/if}
             {/each}
           </div>
         {/each}
@@ -220,7 +228,7 @@
     </div>
 
     {#if lpState.apps.length === 0}
-      <p class="lp-empty">还没有应用。点击右上角「添加应用」，选择要添加的 exe 或快捷方式（.lnk）。</p>
+      <p class="lp-empty">还没有应用。把 exe 或快捷方式（.lnk）拖进来，或点击右上角「添加应用」选择文件。</p>
     {/if}
 
     {#if lpState.editor}
@@ -329,37 +337,4 @@
     </div>
   {/if}
 
-  {#if lpState.addMode}
-    <div class="lp-addpanel">
-      <div class="lp-add-card">
-        <h2>添加应用</h2>
-        <div class="lp-dropzone" class:lp-hot={lpState.dragHover}>
-          <p class="lp-dropzone-main">把 exe 或快捷方式（.lnk）拖到这里</p>
-          <p class="lp-dropzone-sub">可以一次拖多个</p>
-        </div>
-        <p class="lp-add-status">{lpState.addStatus}</p>
-        <button class="lp-btn lp-addmode-pick" type="button" onclick={() => lpState.pickFiles()}>
-          浏览选择文件…
-        </button>
-        <div class="lp-add-pathrow">
-          <input
-            type="text"
-            placeholder="也可以粘贴完整路径，例如 C:\...\WeChat.exe"
-            autocomplete="off"
-            spellcheck="false"
-            bind:value={addPath}
-            onkeydown={(e) => {
-              if (e.key === "Enter") submitPaste();
-            }}
-          />
-          <button class="lp-btn lp-btn-primary" type="button" onclick={submitPaste}>添加</button>
-        </div>
-        <div class="lp-add-actions">
-          <button class="lp-btn lp-btn-primary" type="button" onclick={() => lpState.exitAddMode()}>
-            完成
-          </button>
-        </div>
-      </div>
-    </div>
-  {/if}
 </div>
