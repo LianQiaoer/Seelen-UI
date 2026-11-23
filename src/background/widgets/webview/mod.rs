@@ -117,6 +117,14 @@ impl WidgetWebview {
 
         // Widgets handle their own show/hide animations, avoid the ones from the system.
         imp::disable_system_transitions(&window).log_error();
+
+        // The built-in launchpad gets a native OLE drop target from the
+        // backend (see `register_native_file_drop`): the webview drag-drop
+        // channel refuses file drops on some machines before any event
+        // reaches the page.
+        if widget.id == WidgetId::known_launchpad() {
+            imp::register_native_file_drop(&window).log_error();
+        }
         Ok(Self(window))
     }
 
