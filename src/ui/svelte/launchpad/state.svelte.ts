@@ -156,6 +156,40 @@ class LaunchpadState {
     invoke(SeelenCommand.WriteFile, { filename: DATA_FILE, content: json }).catch(() => {});
   }
 
+  async importData(): Promise<void> {
+    try {
+      const content = await invoke(SeelenCommand.ReadFile, { filename: DATA_FILE });
+      const list: unknown = JSON.parse(content as string);
+      if (!Array.isArray(list)) throw new Error("bad-format");
+      const seen = new Set(this.apps.map((a) => a.path.toLowerCase()));
+      let added = 0;
+      for (const raw of list as Partial<LaunchpadApp>[]) {
+        if (!raw || typeof raw.path !== "string" || !raw.path.trim()) continue;
+        const key = raw.path.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        this.apps.push({
+          id: typeof raw.id === "string" && raw.id ? raw.id : uid(),
+          name: typeof raw.name === "string" && raw.name.trim() ? raw.name : nameFromPath(raw.path),
+          path: raw.path,
+          args: typeof raw.args === "string" ? raw.args : "",
+          workdir: typeof raw.workdir === "string" ? raw.workdir : "",
+          icon: typeof raw.icon === "string" ? raw.icon : "",
+          elevated: !!raw.elevated,
+        });
+        added++;
+      }
+      if (added > 0) {
+        this.save();
+        this.toast("已导入 " + added + " 个应用");
+      } else {
+        this.toast("没有新的应用可导入");
+      }
+    } catch {
+      this.toast("导入失败：没有读到可用的数据文件");
+    }
+  }
+
   addAppsFromPaths(paths: string[]): number {
     let added = 0;
     let skipped = 0;
