@@ -196,7 +196,7 @@ fn file_drop_format() -> FORMATETC {
         ptd: std::ptr::null_mut(),
         dwAspect: DVASPECT_CONTENT.0,
         lindex: -1,
-        tymed: TYMED_HGLOBAL.0,
+        tymed: TYMED_HGLOBAL.0 as u32,
     }
 }
 
@@ -209,7 +209,7 @@ fn extract_dropped_paths(data: &IDataObject) -> Vec<String> {
     let Ok(mut medium) = (unsafe { data.GetData(&file_drop_format()) }) else {
         return paths;
     };
-    let hdrop = HDROP(medium.u.hGlobal.0);
+    let hdrop = HDROP(unsafe { medium.u.hGlobal.0 });
     let count = unsafe { DragQueryFileW(hdrop, u32::MAX, None) };
     for i in 0..count {
         let len = unsafe { DragQueryFileW(hdrop, i, None) } as usize;
