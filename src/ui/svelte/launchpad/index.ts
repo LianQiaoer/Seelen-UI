@@ -30,5 +30,20 @@ Widget.self.window.onDragDropEvent(async (e) => {
   lpState.handleDragDrop(e.payload);
 });
 
+// Native file-drop channel: the Rust backend registers its own OLE drop
+// target on this window and forwards dropped file paths as events. This is
+// independent of the webview drag-drop handler above.
+try {
+  const { listen } = await import("@tauri-apps/api/event");
+  await listen<string[]>("slu-launchpad-drop", (event) => {
+    lpState.handleDragDrop({ type: "drop", paths: event.payload || [] });
+  });
+  await listen<boolean>("slu-launchpad-hover", (event) => {
+    lpState.dragHover = !!event.payload;
+  });
+} catch {
+  /* native drop target unavailable */
+}
+
 await lpState.load();
 await widget.ready({ show: false });
