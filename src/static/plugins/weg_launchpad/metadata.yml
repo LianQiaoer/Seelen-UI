@@ -10,4 +10,4 @@ plugin:
   tooltip: |-
     return "启动台";
   onClick: |-
-    invoke(SeelenCommand.TriggerWidget, { payload: { id: "@seelen/launchpad" } });
+    trigger("@seelen/launchpad");
