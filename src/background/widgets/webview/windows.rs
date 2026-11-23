@@ -156,3 +156,165 @@ fn to_win32_rect(rect: &Rect) -> RECT {
         bottom: rect.bottom,
     }
 }
+
+// =============================================================================
+// Native file drop target (fork addition for the built-in launchpad widget)
+//
+// The webview drag-drop channel refuses file drops on some machines at the OS
+// hover stage, before any event reaches the page. To make dropping files into
+// the launchpad reliable, the backend registers its own OLE IDropTarget on
+// the launchpad window, replacing the webview's built-in handler for that
+// window only, and forwards the dropped paths to the webview as tauri events
+// (`slu-launchpad-drop` / `slu-launchpad-hover`). Other widget windows keep
+// the default webview handler untouched.
+// =============================================================================
+
+use std::{collections::HashMap, sync::LazyLock};
+
+use tauri::Emitter;
+use windows::Win32::{
+    Foundation::POINTL,
+    System::{
+        Com::{DVASPECT_CONTENT, FORMATETC, IDataObject, TYMED_HGLOBAL},
+        Ole::{
+            DROPEFFECT, DROPEFFECT_COPY, DROPEFFECT_NONE, IDropTarget, IDropTarget_Impl,
+            RegisterDragDrop, ReleaseStgMedium, RevokeDragDrop,
+        },
+        SystemServices::MODIFIERKEYS_STATE,
+    },
+    UI::Shell::{DragQueryFileW, HDROP},
+};
+
+use crate::utils::lock_free::TracedMutex;
+
+/// CF_HDROP clipboard format id (shell file drop).
+const CF_HDROP_ID: u16 = 15;
+
+fn file_drop_format() -> FORMATETC {
+    FORMATETC {
+        cfFormat: CF_HDROP_ID,
+        ptd: std::ptr::null_mut(),
+        dwAspect: DVASPECT_CONTENT,
+        lindex: -1,
+        tymed: TYMED_HGLOBAL,
+    }
+}
+
+fn data_has_files(data: &IDataObject) -> bool {
+    unsafe { data.QueryGetData(&file_drop_format()) }.is_ok()
+}
+
+fn extract_dropped_paths(data: &IDataObject) -> Vec<String> {
+    let mut paths = Vec::new();
+    let Ok(mut medium) = (unsafe { data.GetData(&file_drop_format()) }) else {
+        return paths;
+    };
+    let hdrop = HDROP(medium.Anonymous.hGlobal.0);
+    let count = unsafe { DragQueryFileW(hdrop, u32::MAX, windows::core::PWSTR::null(), 0) };
+    for i in 0..count {
+        let len = unsafe { DragQueryFileW(hdrop, i, windows::core::PWSTR::null(), 0) };
+        if len == 0 {
+            continue;
+        }
+        let mut buf = vec![0u16; (len + 1) as usize];
+        let written = unsafe {
+            DragQueryFileW(
+                hdrop,
+                i,
+                windows::core::PWSTR(buf.as_mut_ptr()),
+                buf.len() as u32,
+            )
+        };
+        if written > 0 {
+            buf.truncate(written as usize);
+            paths.push(String::from_utf16_lossy(&buf));
+        }
+    }
+    unsafe { ReleaseStgMedium(&mut medium) };
+    paths
+}
+
+#[windows_core::implement(IDropTarget)]
+struct LaunchpadDropTarget {
+    window: tauri::WebviewWindow,
+}
+
+impl IDropTarget_Impl for LaunchpadDropTarget_Impl {
+    fn DragEnter(
+        &self,
+        pdataobj: windows_core::Ref<'_, IDataObject>,
+        _grfkeystate: MODIFIERKEYS_STATE,
+        _pt: &POINTL,
+        pdweffect: *mut DROPEFFECT,
+    ) -> windows_core::Result<()> {
+        let allowed = pdataobj.as_ref().is_some_and(data_has_files);
+        unsafe {
+            *pdweffect = if allowed { DROPEFFECT_COPY } else { DROPEFFECT_NONE };
+        }
+        if allowed {
+            let _ = self.window.emit("slu-launchpad-hover", true);
+        }
+        Ok(())
+    }
+
+    fn DragOver(
+        &self,
+        _grfkeystate: MODIFIERKEYS_STATE,
+        _pt: &POINTL,
+        pdweffect: *mut DROPEFFECT,
+    ) -> windows_core::Result<()> {
+        unsafe {
+            *pdweffect = DROPEFFECT_COPY;
+        }
+        Ok(())
+    }
+
+    fn DragLeave(&self) -> windows_core::Result<()> {
+        let _ = self.window.emit("slu-launchpad-hover", false);
+        Ok(())
+    }
+
+    fn Drop(
+        &self,
+        pdataobj: windows_core::Ref<'_, IDataObject>,
+        _grfkeystate: MODIFIERKEYS_STATE,
+        _pt: &POINTL,
+        pdweffect: *mut DROPEFFECT,
+    ) -> windows_core::Result<()> {
+        let _ = self.window.emit("slu-launchpad-hover", false);
+        if let Some(data) = pdataobj.as_ref() {
+            let paths = extract_dropped_paths(data);
+            unsafe {
+                *pdweffect = if paths.is_empty() { DROPEFFECT_NONE } else { DROPEFFECT_COPY };
+            }
+            if !paths.is_empty() {
+                let _ = self.window.emit("slu-launchpad-drop", paths);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Keeps every registered drop target alive for the lifetime of its window.
+static FILE_DROP_TARGETS: LazyLock<TracedMutex<HashMap<isize, IDropTarget>>> =
+    LazyLock::new(|| TracedMutex::new(HashMap::new()));
+
+/// Replaces the webview's built-in drag-drop handler on this window with the
+/// native file drop target above.
+pub fn register_native_file_drop(webview: &tauri::WebviewWindow) -> Result<()> {
+    let target_hwnd = hwnd(webview)?;
+    let target: IDropTarget = LaunchpadDropTarget {
+        window: webview.clone(),
+    }
+    .into();
+    unsafe {
+        // Drop any target registered before (the webview's built-in handler,
+        // or an earlier registration of ours if the window was recreated).
+        let _ = RevokeDragDrop(target_hwnd);
+        RegisterDragDrop(target_hwnd, &target)?;
+    }
+    FILE_DROP_TARGETS
+        .lock()
+        .insert(target_hwnd.0 as isize, target);
+    Ok(())
+}
