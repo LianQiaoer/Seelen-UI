@@ -236,4 +236,7 @@ impl WidgetId {
     pub fn known_popup() -> Self {
         "@seelen/dialog".into()
     }
+    pub fn known_launchpad() -> Self {
+        "@seelen/launchpad".into()
+    }
 }
