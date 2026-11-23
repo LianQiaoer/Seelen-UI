@@ -46,4 +46,5 @@ try {
 }
 
 await lpState.load();
+void lpState.maybeBackup();
 await widget.ready({ show: false });
