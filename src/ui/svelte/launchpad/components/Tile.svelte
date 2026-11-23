@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import {
     getIconManager,
     lpState,
@@ -19,33 +20,37 @@
     void item.icon;
     void lpState.iconVersion;
     let cancelled = false;
-    iconSrc = item.icon?.trim() ? item.icon.trim() : null;
-    if (!iconSrc) {
-      (async () => {
-        const mgr = await getIconManager();
-        if (!mgr || cancelled) return;
-        const tryGet = (): boolean => {
-          try {
-            const icon = mgr.getIcon({ path: item.path, umid: null });
-            const src = icon && (icon.base || icon.dark || icon.light);
-            if (src) {
-              iconSrc = src;
-              return true;
+    // untrack: the body reads and writes iconSrc; without this the effect
+    // subscribes to its own writes and re-triggers itself forever.
+    untrack(() => {
+      iconSrc = item.icon?.trim() ? item.icon.trim() : null;
+      if (!iconSrc) {
+        (async () => {
+          const mgr = await getIconManager();
+          if (!mgr || cancelled) return;
+          const tryGet = (): boolean => {
+            try {
+              const icon = mgr.getIcon({ path: item.path, umid: null });
+              const src = icon && (icon.base || icon.dark || icon.light);
+              if (src) {
+                iconSrc = src;
+                return true;
+              }
+            } catch {
+              /* ignore */
             }
-          } catch {
-            /* ignore */
-          }
-          return false;
-        };
-        if (tryGet()) return;
-        requestIconExtractionOnce(item.path);
-        for (const ms of [600, 1500, 3000]) {
-          await new Promise((r) => setTimeout(r, ms));
-          if (cancelled || iconSrc) return;
+            return false;
+          };
           if (tryGet()) return;
-        }
-      })();
-    }
+          requestIconExtractionOnce(item.path);
+          for (const ms of [600, 1500, 3000]) {
+            await new Promise((r) => setTimeout(r, ms));
+            if (cancelled || iconSrc) return;
+            if (tryGet()) return;
+          }
+        })();
+      }
+    });
     return () => {
       cancelled = true;
     };
