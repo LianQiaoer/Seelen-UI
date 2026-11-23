@@ -173,6 +173,7 @@
         />
       </div>
       <div class="lp-actions">
+        <button class="lp-btn" type="button" onclick={() => lpState.importData()}>导入数据</button>
         <button class="lp-btn" type="button" onclick={() => lpState.pickFiles()}>添加应用</button>
         <button
           class="lp-btn"
@@ -228,7 +229,7 @@
     </div>
 
     {#if lpState.apps.length === 0}
-      <p class="lp-empty">还没有应用。把 exe 或快捷方式（.lnk）拖进来，或点击右上角「添加应用」选择文件。</p>
+      <p class="lp-empty">还没有应用。点「添加应用」选择 exe 或快捷方式（.lnk）；批量迁移可先用导入工具导出数据，再点「导入数据」。</p>
     {/if}
 
     {#if lpState.editor}
