@@ -88,9 +88,7 @@ class LaunchpadState {
   query = $state("");
   page = $state(0);
   editing = $state(false);
-  addMode = $state(false);
   dragHover = $state(false);
-  addStatus = $state("");
   toastMsg = $state("");
   toastVisible = $state(false);
   iconVersion = $state(0);
@@ -305,18 +303,6 @@ class LaunchpadState {
     this.page = Math.max(0, Math.min(pageCount - 1, pg));
   }
 
-  enterAddMode(): void {
-    this.addMode = true;
-    this.addStatus = "";
-    this.hideMenu();
-    this.closeEditor();
-  }
-
-  exitAddMode(): void {
-    this.addMode = false;
-    this.dragHover = false;
-  }
-
   async pickFiles(): Promise<void> {
     if (!this.widget) return;
     try {
@@ -329,11 +315,10 @@ class LaunchpadState {
         filters: [{ name: "应用", extensions: ["exe", "lnk", "bat", "cmd"] }],
       });
       if (picked) {
-        const n = this.addAppsFromPaths(Array.isArray(picked) ? picked : [picked]);
-        if (n > 0) this.addStatus = "已添加 " + n + " 个应用，继续选或点「完成」";
+        this.addAppsFromPaths(Array.isArray(picked) ? picked : [picked]);
       }
     } catch {
-      this.toast("文件选择不可用，请粘贴路径添加");
+      this.toast("文件选择不可用，请在编辑模式下点 + 手动填写路径");
     }
     try {
       await this.fitWindow();
@@ -344,13 +329,6 @@ class LaunchpadState {
     }
   }
 
-  addFromPaste(raw: string): void {
-    const v = raw.trim().replace(/^"|"$/g, "");
-    if (!v) return;
-    const n = this.addAppsFromPaths([v]);
-    if (n > 0) this.addStatus = "已添加 " + n + " 个应用，继续加或点「完成」";
-  }
-
   handleDragDrop(payload: { type: string; paths?: string[] }): void {
     if (!payload) return;
     if (payload.type === "enter" || payload.type === "over") {
@@ -359,15 +337,12 @@ class LaunchpadState {
       this.dragHover = false;
     } else if (payload.type === "drop") {
       this.dragHover = false;
-      const n = this.addAppsFromPaths(payload.paths || []);
-      if (this.addMode && n > 0) {
-        this.addStatus = "已添加 " + n + " 个应用，继续拖或点「完成」";
-      }
+      this.addAppsFromPaths(payload.paths || []);
     }
   }
 
   noteFocusLoss(): void {
-    if (!this.addMode) this.lastFocusLossAt = Date.now();
+    this.lastFocusLossAt = Date.now();
   }
 
   async fitWindow(): Promise<void> {
