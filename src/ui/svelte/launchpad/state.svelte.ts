@@ -83,6 +83,16 @@ export function requestIconExtractionOnce(path: string): void {
   IconPackManager.requestIconExtraction({ path, umid: null }).catch(() => {});
 }
 
+function utf8Base64(text: string): string {
+  const bytes = new TextEncoder().encode(text);
+  let bin = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin);
+}
+
 class LaunchpadState {
   apps = $state<LaunchpadApp[]>([]);
   query = $state("");
@@ -187,6 +197,85 @@ class LaunchpadState {
       }
     } catch {
       this.toast("导入失败：没有读到可用的数据文件");
+    }
+  }
+
+  private backupRunning = false;
+
+  /**
+   * Weekly backup of the apps data to a GitHub repo, as a JS file.
+   * Config lives in `launchpad-backup.json` in this widget's data folder:
+   * { "token": "...", "owner": "...", "repo": "...", "path": "...", "branch": "..." }.
+   * Runs at most once a week: it becomes due on Saturday and is executed on
+   * the next launchpad open after that (catch-up included). Without a config
+   * file it stays completely silent.
+   */
+  async maybeBackup(): Promise<void> {
+    if (this.backupRunning || !this.widget) return;
+    const now = new Date();
+    const saturday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    saturday.setDate(saturday.getDate() - ((now.getDay() + 1) % 7));
+    let last = 0;
+    try {
+      last = Number(localStorage.getItem("lp-backup-last") || 0);
+    } catch {
+      /* ignore */
+    }
+    if (last >= saturday.getTime()) return;
+
+    let cfg: { token?: string; owner?: string; repo?: string; path?: string; branch?: string };
+    try {
+      const raw = await invoke(SeelenCommand.ReadFile, { filename: "launchpad-backup.json" });
+      cfg = JSON.parse(raw as string);
+    } catch {
+      return; // no backup configured
+    }
+    if (!cfg.token || !cfg.owner || !cfg.repo) return;
+
+    this.backupRunning = true;
+    try {
+      const path = cfg.path || "backup/launchpad-apps.js";
+      const branch = cfg.branch || "master";
+      const text =
+        "// Launchpad apps backup (Seelen UI)\n// Updated: " +
+        new Date().toISOString() +
+        "\nexport default " +
+        JSON.stringify(this.apps, null, 2) +
+        ";\n";
+      const headers: Record<string, string> = {
+        Authorization: "Bearer " + cfg.token,
+        Accept: "application/vnd.github+json",
+      };
+      const url =
+        "https://api.github.com/repos/" + cfg.owner + "/" + cfg.repo + "/contents/" + path;
+      let sha: string | undefined;
+      const getResp = await fetch(url + "?ref=" + encodeURIComponent(branch), { headers });
+      if (getResp.ok) {
+        const j = (await getResp.json()) as { sha?: string };
+        sha = j.sha;
+      }
+      const body: Record<string, unknown> = {
+        message: "backup: launchpad apps " + new Date().toISOString().slice(0, 10),
+        content: utf8Base64(text),
+        branch,
+      };
+      if (sha) body.sha = sha;
+      const putResp = await fetch(url, {
+        method: "PUT",
+        headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!putResp.ok) throw new Error("github-" + putResp.status);
+      try {
+        localStorage.setItem("lp-backup-last", String(Date.now()));
+      } catch {
+        /* ignore */
+      }
+      this.toast("启动台数据已备份到 GitHub");
+    } catch {
+      this.toast("备份到 GitHub 失败，下次打开启动台时会重试");
+    } finally {
+      this.backupRunning = false;
     }
   }
 
@@ -382,6 +471,21 @@ class LaunchpadState {
   async fitWindow(): Promise<void> {
     if (!this.widget) return;
     try {
+      const monitor = await this.widget.window.currentMonitor();
+      if (monitor) {
+        const sf = monitor.scaleFactor || (await this.widget.window.scaleFactor()) || 1;
+        const w = Math.round(monitor.size.width / sf);
+        const h = Math.round(monitor.size.height / sf);
+        await this.widget.window.setSize(
+          new LogicalSize(Math.floor(w * 0.94), Math.floor(h * 0.92)),
+        );
+        await this.widget.window.center();
+        return;
+      }
+    } catch {
+      /* fall through to the windowed size */
+    }
+    try {
       await this.widget.window.setSize(new LogicalSize(720, 560));
       await this.widget.window.center();
     } catch {
@@ -426,6 +530,7 @@ class LaunchpadState {
     await this.widget.focus();
     this.playOpenAnimation();
     this.focusNonce++;
+    void this.maybeBackup();
   }
 }
 
