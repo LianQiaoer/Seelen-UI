@@ -180,7 +180,7 @@ use windows::Win32::{
             DROPEFFECT, DROPEFFECT_COPY, DROPEFFECT_NONE, IDropTarget, IDropTarget_Impl,
             RegisterDragDrop, ReleaseStgMedium, RevokeDragDrop,
         },
-        SystemServices::MODIFIERKEYS_STATE,
+        SystemServices::MODIFIERKEYS_FLAGS,
     },
     UI::Shell::{DragQueryFileW, HDROP},
 };
@@ -194,9 +194,9 @@ fn file_drop_format() -> FORMATETC {
     FORMATETC {
         cfFormat: CF_HDROP_ID,
         ptd: std::ptr::null_mut(),
-        dwAspect: DVASPECT_CONTENT,
+        dwAspect: DVASPECT_CONTENT.0,
         lindex: -1,
-        tymed: TYMED_HGLOBAL,
+        tymed: TYMED_HGLOBAL.0,
     }
 }
 
@@ -209,24 +209,17 @@ fn extract_dropped_paths(data: &IDataObject) -> Vec<String> {
     let Ok(mut medium) = (unsafe { data.GetData(&file_drop_format()) }) else {
         return paths;
     };
-    let hdrop = HDROP(medium.Anonymous.hGlobal.0);
-    let count = unsafe { DragQueryFileW(hdrop, u32::MAX, windows::core::PWSTR::null(), 0) };
+    let hdrop = HDROP(medium.u.hGlobal.0);
+    let count = unsafe { DragQueryFileW(hdrop, u32::MAX, None) };
     for i in 0..count {
-        let len = unsafe { DragQueryFileW(hdrop, i, windows::core::PWSTR::null(), 0) };
+        let len = unsafe { DragQueryFileW(hdrop, i, None) } as usize;
         if len == 0 {
             continue;
         }
-        let mut buf = vec![0u16; (len + 1) as usize];
-        let written = unsafe {
-            DragQueryFileW(
-                hdrop,
-                i,
-                windows::core::PWSTR(buf.as_mut_ptr()),
-                buf.len() as u32,
-            )
-        };
+        let mut buf = vec![0u16; len + 1];
+        let written = unsafe { DragQueryFileW(hdrop, i, Some(&mut buf)) } as usize;
         if written > 0 {
-            buf.truncate(written as usize);
+            buf.truncate(written);
             paths.push(String::from_utf16_lossy(&buf));
         }
     }
@@ -243,7 +236,7 @@ impl IDropTarget_Impl for LaunchpadDropTarget_Impl {
     fn DragEnter(
         &self,
         pdataobj: windows_core::Ref<'_, IDataObject>,
-        _grfkeystate: MODIFIERKEYS_STATE,
+        _grfkeystate: MODIFIERKEYS_FLAGS,
         _pt: &POINTL,
         pdweffect: *mut DROPEFFECT,
     ) -> windows_core::Result<()> {
@@ -259,7 +252,7 @@ impl IDropTarget_Impl for LaunchpadDropTarget_Impl {
 
     fn DragOver(
         &self,
-        _grfkeystate: MODIFIERKEYS_STATE,
+        _grfkeystate: MODIFIERKEYS_FLAGS,
         _pt: &POINTL,
         pdweffect: *mut DROPEFFECT,
     ) -> windows_core::Result<()> {
@@ -277,7 +270,7 @@ impl IDropTarget_Impl for LaunchpadDropTarget_Impl {
     fn Drop(
         &self,
         pdataobj: windows_core::Ref<'_, IDataObject>,
-        _grfkeystate: MODIFIERKEYS_STATE,
+        _grfkeystate: MODIFIERKEYS_FLAGS,
         _pt: &POINTL,
         pdweffect: *mut DROPEFFECT,
     ) -> windows_core::Result<()> {
@@ -296,7 +289,17 @@ impl IDropTarget_Impl for LaunchpadDropTarget_Impl {
 }
 
 /// Keeps every registered drop target alive for the lifetime of its window.
-static FILE_DROP_TARGETS: LazyLock<TracedMutex<HashMap<isize, IDropTarget>>> =
+/// The COM interface pointer is only ever used on the window's own thread
+/// (registration) and by the COM runtime calling back into it; the wrapper
+/// exists because the raw interface type is not Send/Sync.
+struct StoredDropTarget(IDropTarget);
+
+// SAFETY: the target is registered on, and called back on, the main UI
+// thread; the static only keeps its reference count alive.
+unsafe impl Send for StoredDropTarget {}
+unsafe impl Sync for StoredDropTarget {}
+
+static FILE_DROP_TARGETS: LazyLock<TracedMutex<HashMap<isize, StoredDropTarget>>> =
     LazyLock::new(|| TracedMutex::new(HashMap::new()));
 
 /// Replaces the webview's built-in drag-drop handler on this window with the
@@ -315,6 +318,6 @@ pub fn register_native_file_drop(webview: &tauri::WebviewWindow) -> Result<()> {
     }
     FILE_DROP_TARGETS
         .lock()
-        .insert(target_hwnd.0 as isize, target);
+        .insert(target_hwnd.0 as isize, StoredDropTarget(target));
     Ok(())
 }
