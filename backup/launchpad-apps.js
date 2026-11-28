@@ -1,5 +1,5 @@
 // Launchpad apps backup (Seelen UI)
-// Updated: 2026-11-23T15:19:28.872Z
+// Updated: 2026-11-28T06:16:57.530Z
 export default [
   {
     "id": "app-fe11576d",
@@ -482,6 +482,60 @@ export default [
     "id": "app-mwtdvpbh-zgye8h",
     "name": "obs64",
     "path": "C:\\Program Files\\obs-studio\\bin\\64bit\\obs64.exe",
+    "args": "",
+    "workdir": "",
+    "icon": "",
+    "elevated": false
+  },
+  {
+    "id": "app-mwtewbfg-7s8xat",
+    "name": "Steam++",
+    "path": "C:\\Program Files\\Steam++\\Steam++.exe",
+    "args": "",
+    "workdir": "",
+    "icon": "",
+    "elevated": false
+  },
+  {
+    "id": "app-mwthhqq8-55yr7o",
+    "name": "qbittorrent",
+    "path": "C:\\Program Files\\qBittorrent\\qbittorrent.exe",
+    "args": "",
+    "workdir": "",
+    "icon": "",
+    "elevated": false
+  },
+  {
+    "id": "app-mwtjmm4d-afl9ur",
+    "name": "启动项与右键菜单管理",
+    "path": "D:\\Program Files (x86)\\启动项与右键菜单管理\\StartupAndMenu.exe",
+    "args": "",
+    "workdir": "",
+    "icon": "",
+    "elevated": true
+  },
+  {
+    "id": "app-mwuqchnn-rsipjq",
+    "name": "代理端口",
+    "path": "D:\\Program Files (x86)\\代理端口.exe",
+    "args": "",
+    "workdir": "",
+    "icon": "",
+    "elevated": false
+  },
+  {
+    "id": "app-mwuqtbdn-slag4w",
+    "name": "AWS Quick",
+    "path": "C:\\Users\\GunGod\\Desktop\\AWS Quick.lnk",
+    "args": "",
+    "workdir": "",
+    "icon": "",
+    "elevated": false
+  },
+  {
+    "id": "app-mwuqtbdn-3992d3",
+    "name": "CFPilot Mesh",
+    "path": "C:\\Users\\GunGod\\Desktop\\CFPilot Mesh.lnk",
     "args": "",
     "workdir": "",
     "icon": "",
